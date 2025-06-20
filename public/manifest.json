@@ -1,0 +1,17 @@
+{
+    "manifest_version": 3,
+    "name": "Bookmark Manager",
+    "version": "1.0",
+    "description": "A bookmark management extension",
+    "permissions": [
+        "bookmarks","downloads"
+    ],
+    "chrome_url_overrides": {
+        "newtab": "index.html"
+    }
+    // ,
+    // "action": {
+    //     "default_popup": "index.html",
+    //     "default_title": "Bookmark Manager"
+    // }
+}
