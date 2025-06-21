@@ -29,7 +29,7 @@
                     >
                         {{ isClassifying ? '分类中...' : 'AI智能分类' }}
                     </t-button>
-                    <t-button @click="showTester = true;console.log(showTester)" variant="outline" theme="primary">
+                    <t-button @click="openTester" variant="outline" theme="primary">
                         测试分类效果
                     </t-button>
                     <t-button @click="downloadResults(bookmarkData)" :disabled="!bookmarkData">
@@ -228,6 +228,13 @@ const onPageChange = (currentPageInfo) => {
     const startIndex = pagination.pageSize * (pagination.current - 1);
     const endIndex = pagination.pageSize * pagination.current;
     bookmarkTable.value = bookmarkData.value.slice(startIndex, endIndex);
+};
+
+// 打开测试器
+const openTester = () => {
+    console.log('打开测试器，当前状态:', showTester.value);
+    showTester.value = true;
+    console.log('设置后状态:', showTester.value);
 };
 
 // AI分类书签

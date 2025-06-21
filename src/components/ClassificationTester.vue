@@ -1,7 +1,7 @@
 <!-- src/components/ClassificationTester.vue -->
 <template>
     <t-dialog
-        v-model:visible="visible"
+        v-model:visible="dialogVisible"
         title="分类效果测试"
         width="80%"
         :footer="false"
@@ -97,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref, defineEmits, defineProps } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 
 const props = defineProps({
@@ -106,12 +106,22 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'apply-prompt']);
 
-const visible = ref(props.visible);
+// 使用计算属性来正确处理 v-model
+const dialogVisible = computed({
+    get: () => props.visible,
+    set: (value) => emit('update:visible', value)
+});
+
 const isTesting = ref(false);
 const promptType = ref('fine');
 const customPrompt = ref('');
 const testSamples = ref('');
 const testResult = ref(null);
+
+// 监听 visible 变化，确保对话框正确显示
+watch(() => props.visible, (newVal) => {
+    console.log('ClassificationTester visible changed:', newVal);
+});
 
 // 默认测试样本
 const defaultSamples = `见微知著，以一道游戏题目测评deepseek-r1与御三家模型，顺便科普些模型调整知识 - 文档共建 - LINUX DO|https://linux.do/t/topic/380000
@@ -226,7 +236,6 @@ const testClassification = async () => {
         const prompt = buildTestPrompt(bookmarks);
         
         // 这里应该调用DeepSeek API，为了演示简化处理
-        // 实际使用时需要导入DeepSeekService
         console.log('测试提示词:', prompt);
         
         // 模拟API调用延迟
@@ -245,18 +254,42 @@ const testClassification = async () => {
                     name: "前端框架文档",
                     description: "Vue.js、React等前端框架的官方文档和指南",
                     keywords: ["Vue.js", "React", "前端框架", "文档"],
-                    bookmarks: [bookmarks[1], bookmarks[2]]
+                    bookmarks: bookmarks.slice(1, 3)
                 },
                 {
                     name: "数据科学工具",
                     description: "Python数据分析、机器学习相关的工具和教程",
                     keywords: ["Python", "数据分析", "机器学习", "pandas"],
-                    bookmarks: [bookmarks[3], bookmarks[4]]
+                    bookmarks: bookmarks.slice(3, 5)
+                },
+                {
+                    name: "云服务与容器化",
+                    description: "Docker、Kubernetes、AWS等云服务和容器化技术",
+                    keywords: ["Docker", "Kubernetes", "AWS", "云服务"],
+                    bookmarks: bookmarks.slice(5, 8)
+                },
+                {
+                    name: "设计工具",
+                    description: "Figma、Photoshop等设计软件和工具",
+                    keywords: ["设计", "Figma", "Photoshop", "工具"],
+                    bookmarks: bookmarks.slice(8, 10)
+                },
+                {
+                    name: "金融投资",
+                    description: "股票分析、加密货币等金融投资工具",
+                    keywords: ["股票", "比特币", "投资", "金融"],
+                    bookmarks: bookmarks.slice(10, 12)
+                },
+                {
+                    name: "电商购物",
+                    description: "淘宝、京东等购物平台",
+                    keywords: ["购物", "电商", "淘宝", "京东"],
+                    bookmarks: bookmarks.slice(12)
                 }
             ],
-            summary: `成功分类 ${bookmarks.length} 个书签到 3 个精细主题类别`,
+            summary: `成功分类 ${bookmarks.length} 个书签到 7 个精细主题类别`,
             totalBookmarks: bookmarks.length,
-            totalCategories: 3
+            totalCategories: 7
         };
         
         testResult.value = mockResult;
@@ -277,7 +310,7 @@ const applyPrompt = () => {
         customPrompt: promptType.value === 'custom' ? customPrompt.value : null
     });
     MessagePlugin.success('已应用提示词配置');
-    visible.value = false;
+    dialogVisible.value = false;
 };
 
 // 导出测试结果
