@@ -1,5 +1,5 @@
 <script setup>
-import BookmarkTest from './components/BookmarkTest.vue';
+import BookmarkTest from './components/BookmarkTest2.vue';
 </script>
 
 <template>

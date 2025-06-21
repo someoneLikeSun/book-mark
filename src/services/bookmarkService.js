@@ -28,6 +28,13 @@ if (dev === process.env.NODE_ENV) {
                     "parentId": "18",
                     "title": "FCCloud",
                     "url": "https://www.fccloud.vip/#/dashboard"
+                },{
+                    "dateAdded": 1701963225412,
+                    "id": "29",
+                    "index": 10,
+                    "parentId": "19",
+                    "title": "见微知著，以一道游戏题目测评deepseek-r1与御三家模型，顺便科普些模型调整知识 - 文档共建 - LINUX DO",
+                    "url": "https://linux.do/t/topic/380000"
                 }])
             },
             remove:function(id,callback){
