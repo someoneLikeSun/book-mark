@@ -32,6 +32,16 @@
                     <t-button @click="openTester" variant="outline" theme="primary">
                         测试分类效果
                     </t-button>
+                    <t-button @click="openCacheManager" variant="outline">
+                        缓存管理
+                    </t-button>
+                    <t-button 
+                        @click="saveCurrentResult" 
+                        :disabled="!classificationResult"
+                        theme="success"
+                    >
+                        保存结果
+                    </t-button>
                     <t-button @click="downloadResults(bookmarkData)" :disabled="!bookmarkData">
                         下载书签
                     </t-button>
@@ -46,7 +56,9 @@
         <div v-if="classificationResult" style="margin-bottom: 20px;">
             <t-card title="AI分类结果" :bordered="true">
                 <template #actions>
-                    <t-button size="small" @click="exportClassification">导出分类</t-button>
+                    <t-dropdown :options="exportOptions" @click="handleExportClick">
+                        <t-button size="small">导出分类</t-button>
+                    </t-dropdown>
                     <t-button size="small" @click="clearClassification" variant="text">清除</t-button>
                 </template>
                 
@@ -117,6 +129,12 @@
             @apply-prompt="handleApplyPrompt"
         />
 
+        <!-- 缓存管理器 -->
+        <cache-manager 
+            v-model:visible="showCacheManager"
+            @load-cache-result="handleLoadCacheResult"
+        />
+
         <!-- 加载对话框 -->
         <t-dialog
             v-model:visible="showClassifyDialog"
@@ -140,14 +158,26 @@ import { MessagePlugin } from 'tdesign-vue-next';
 
 import { BookmarkService } from '../services/bookmarkService';
 import { DeepSeekService } from '../services/deepseekService';
+import { CacheService } from '../services/cacheService';
+import { ExportHelper } from '../services/exportHelper';
 import ClassificationTester from './ClassificationTester.vue';
+import CacheManager from './CacheManager.vue';
 
 const searchQuery = ref('');
 const isSearching = ref(false);
 const isClassifying = ref(false);
 const showClassifyDialog = ref(false);
 const showTester = ref(false);
+const showCacheManager = ref(false);
 const classifyProgress = ref('');
+
+// 导出选项
+const exportOptions = ref([
+    { content: 'JSON格式 (完整数据)', value: 'json' },
+    { content: 'TXT格式 (可读报告)', value: 'txt' },
+    { content: 'CSV格式 (表格数据)', value: 'csv' },
+    { content: 'HTML格式 (网页报告)', value: 'html' }
+]);
 
 const bookmarkData = ref(null);
 const bookmarkTable = ref([]);
@@ -201,6 +231,30 @@ const searchBookmarks = async () => {
         return;
     }
 
+    // 检查是否存在缓存
+    const existingCacheId = CacheService.findExistingCache(searchQuery.value);
+    if (existingCacheId) {
+        try {
+            const shouldLoadCache = await MessagePlugin.confirm(
+                `发现关键词"${searchQuery.value}"的缓存结果，是否直接加载？`,
+                {
+                    confirmBtn: '加载缓存',
+                    cancelBtn: '重新搜索'
+                }
+            );
+            
+            if (shouldLoadCache) {
+                const cacheData = CacheService.loadClassificationResult(existingCacheId);
+                if (cacheData) {
+                    handleLoadCacheResult(cacheData);
+                    return;
+                }
+            }
+        } catch (error) {
+            // 用户选择重新搜索，继续执行
+        }
+    }
+
     try {
         isSearching.value = true;
         const data = await BookmarkService.searchBookmarks(searchQuery.value);
@@ -237,6 +291,65 @@ const openTester = () => {
     console.log('设置后状态:', showTester.value);
 };
 
+// 打开缓存管理器
+const openCacheManager = () => {
+    showCacheManager.value = true;
+};
+
+// 保存当前分类结果
+const saveCurrentResult = async () => {
+    if (!classificationResult.value || !searchQuery.value || !bookmarkData.value) {
+        MessagePlugin.warning('没有可保存的结果');
+        return;
+    }
+
+    try {
+        // 检查是否已存在相同查询的缓存
+        const existingCacheId = CacheService.findExistingCache(searchQuery.value);
+        if (existingCacheId) {
+            const confirmed = await MessagePlugin.confirm(
+                `已存在关键词"${searchQuery.value}"的缓存，是否覆盖？`,
+                {
+                    confirmBtn: '覆盖',
+                    cancelBtn: '取消'
+                }
+            );
+            if (!confirmed) return;
+        }
+
+        const cacheId = CacheService.saveClassificationResult(
+            searchQuery.value,
+            bookmarkData.value,
+            classificationResult.value
+        );
+        
+        MessagePlugin.success(`结果已保存到缓存 (ID: ${cacheId.slice(-8)})`);
+    } catch (error) {
+        console.error('保存结果失败:', error);
+        MessagePlugin.error('保存失败: ' + error.message);
+    }
+};
+
+// 加载缓存结果
+const handleLoadCacheResult = (cacheData) => {
+    try {
+        // 恢复搜索状态
+        searchQuery.value = cacheData.searchQuery;
+        bookmarkData.value = cacheData.bookmarks;
+        classificationResult.value = cacheData.classificationResult;
+        
+        // 更新分页
+        pagination.total = cacheData.bookmarks.length;
+        pagination.current = 1;
+        onPageChange(pagination);
+        
+        MessagePlugin.success(`已加载缓存: ${cacheData.searchQuery}`);
+    } catch (error) {
+        console.error('加载缓存结果失败:', error);
+        MessagePlugin.error('加载缓存失败');
+    }
+};
+
 // AI分类书签
 const classifyBookmarks = async () => {
     if (!bookmarkData.value || bookmarkData.value.length === 0) {
@@ -260,6 +373,24 @@ const classifyBookmarks = async () => {
 
         classificationResult.value = result;
         MessagePlugin.success(`分类完成！共分为 ${result.totalCategories} 个类别`);
+        
+        // 提示是否保存结果
+        setTimeout(async () => {
+            try {
+                const shouldSave = await MessagePlugin.confirm(
+                    '分类完成！是否将结果保存到缓存中？',
+                    {
+                        confirmBtn: '保存',
+                        cancelBtn: '不保存'
+                    }
+                );
+                if (shouldSave) {
+                    await saveCurrentResult();
+                }
+            } catch (error) {
+                // 用户取消，不处理
+            }
+        }, 500);
         
     } catch (error) {
         console.error('分类失败:', error);
@@ -306,52 +437,163 @@ const downloadResults = (bookmarkList) => {
         return;
     }
 
-    const content = bookmarkList
-        .map((bookmark) => `标题: ${bookmark.title}\n网址: ${bookmark.url}\n添加时间: ${new Date(bookmark.dateAdded).toLocaleString()}\n`)
-        .join('\n---\n\n');
-    
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    
-    chrome.downloads.download({
-        url: url,
-        filename: `书签_${new Date().getTime()}.txt`,
-        saveAs: true,
-    });
-    
-    MessagePlugin.success('下载开始');
+    try {
+        // 构建详细的书签内容
+        const header = `书签导出报告
+导出时间: ${new Date().toLocaleString()}
+搜索关键词: ${searchQuery.value || '全部书签'}
+书签总数: ${bookmarkList.length}
+=========================================
+
+`;
+
+        const content = header + bookmarkList
+            .map((bookmark, index) => {
+                return `${index + 1}. ${bookmark.title}
+   网址: ${bookmark.url}
+   添加时间: ${new Date(bookmark.dateAdded).toLocaleString()}
+   ID: ${bookmark.id}`;
+            })
+            .join('\n\n');
+        
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const fileName = `书签列表_${searchQuery.value || '全部'}_${timestamp}.txt`;
+        
+        chrome.downloads.download({
+            url: url,
+            filename: fileName,
+            saveAs: true,
+        });
+        
+        MessagePlugin.success('书签列表下载成功');
+        
+        // 清理临时URL
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+        }, 1000);
+        
+    } catch (error) {
+        console.error('下载书签失败:', error);
+        MessagePlugin.error('下载失败: ' + error.message);
+    }
 };
 
 // 下载分类
 const downloadCategory = (category) => {
-    const content = `分类: ${category.name}\n描述: ${category.description}\n\n` +
-        category.bookmarks
-            .map((bookmark) => `标题: ${bookmark.title}\n网址: ${bookmark.url}`)
+    try {
+        const header = `分类下载报告
+导出时间: ${new Date().toLocaleString()}
+分类名称: ${category.name}
+分类描述: ${category.description}
+书签数量: ${category.bookmarks.length}
+关键词: ${category.keywords ? category.keywords.join(', ') : '无'}
+=========================================
+
+`;
+
+        const content = header + category.bookmarks
+            .map((bookmark, index) => {
+                return `${index + 1}. ${bookmark.title}
+   网址: ${bookmark.url}
+   添加时间: ${new Date(bookmark.dateAdded).toLocaleString()}`;
+            })
             .join('\n\n');
-    
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    
-    chrome.downloads.download({
-        url: url,
-        filename: `${category.name}_书签.txt`,
-        saveAs: true,
-    });
+        
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const fileName = `分类_${category.name}_${timestamp}.txt`;
+        
+        chrome.downloads.download({
+            url: url,
+            filename: fileName,
+            saveAs: true,
+        });
+        
+        MessagePlugin.success(`分类"${category.name}"下载成功`);
+        
+        // 清理临时URL
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+        }, 1000);
+        
+    } catch (error) {
+        console.error('下载分类失败:', error);
+        MessagePlugin.error('下载失败: ' + error.message);
+    }
 };
 
-// 导出分类结果
+// 处理导出点击事件
+const handleExportClick = (data) => {
+    if (!classificationResult.value) {
+        MessagePlugin.warning('没有可导出的分类结果');
+        return;
+    }
+    
+    const format = data.value;
+    exportClassificationByFormat(format);
+};
+
+// 按格式导出分类结果
+const exportClassificationByFormat = (format) => {
+    try {
+        let content, filename, mimeType;
+        
+        switch (format) {
+            case 'json':
+                content = ExportHelper.exportAsJSON(
+                    classificationResult.value, 
+                    bookmarkData.value, 
+                    searchQuery.value
+                );
+                filename = ExportHelper.generateFilename('书签分类结果', 'json', searchQuery.value);
+                mimeType = 'application/json';
+                break;
+                
+            case 'txt':
+                content = ExportHelper.exportAsText(classificationResult.value, searchQuery.value);
+                filename = ExportHelper.generateFilename('书签分类报告', 'txt', searchQuery.value);
+                mimeType = 'text/plain';
+                break;
+                
+            case 'csv':
+                content = ExportHelper.exportAsCSV(classificationResult.value);
+                filename = ExportHelper.generateFilename('书签分类数据', 'csv', searchQuery.value);
+                mimeType = 'text/csv';
+                break;
+                
+            case 'html':
+                content = ExportHelper.exportAsHTML(classificationResult.value, searchQuery.value);
+                filename = ExportHelper.generateFilename('书签分类报告', 'html', searchQuery.value);
+                mimeType = 'text/html';
+                break;
+                
+            default:
+                MessagePlugin.error('不支持的导出格式');
+                return;
+        }
+        
+        const success = ExportHelper.triggerDownload(content, filename, mimeType);
+        
+        if (success) {
+            MessagePlugin.success(`${format.toUpperCase()}格式分类结果导出成功`);
+        } else {
+            MessagePlugin.error('导出失败，请重试');
+        }
+        
+    } catch (error) {
+        console.error('导出分类结果失败:', error);
+        MessagePlugin.error('导出失败: ' + error.message);
+    }
+};
+
+// 导出分类结果 (保留原方法作为默认JSON导出)
 const exportClassification = () => {
-    if (!classificationResult.value) return;
-    
-    const content = JSON.stringify(classificationResult.value, null, 2);
-    const blob = new Blob([content], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    
-    chrome.downloads.download({
-        url: url,
-        filename: `书签分类结果_${new Date().getTime()}.json`,
-        saveAs: true,
-    });
+    exportClassificationByFormat('json');
 };
 
 // 清除分类结果
